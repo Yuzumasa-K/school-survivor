@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>放課後サバイバー（仮）- Phase1</title>
 <style>
   html, body {
@@ -16,7 +16,47 @@
   canvas {
     display: block;
     background: #2b2f36;
+    touch-action: none; /* スマホでドラッグ操作した時にページがスクロール/拡大しないようにする */
   }
+
+  /* ---------- スマホ用バーチャルスティック ---------- */
+  /* 画面をタッチした場所にその場で出現し、指を離すと消える方式 */
+  #joystick-base {
+    position: fixed;
+    width: 100px;
+    height: 100px;
+    margin-left: -50px;
+    margin-top: -50px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.35);
+    display: none;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #joystick-knob {
+    position: fixed;
+    width: 46px;
+    height: 46px;
+    margin-left: -23px;
+    margin-top: -23px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.55);
+    display: none;
+    pointer-events: none;
+    z-index: 6;
+  }
+
+  /* ---------- スマホ用リバートボタン ---------- */
+  /* PCでは[Q]キー、タッチ端末ではこのボタンをタップで直前の武器に戻す */
+  #revert-panel {
+    touch-action: none;
+  }
+  #revert-tap-hint {
+    display: none;
+  }
+  .is-touch #revert-tap-hint { display: inline; }
+  .is-touch #revert-key-hint { display: none; }
 
   /* ---------- HUD（HP・武器情報） ---------- */
   #hud {
@@ -149,8 +189,14 @@
 <div id="revert-panel">
   <div id="revert-label">直前の武器: ―</div>
   <div id="revert-gauge-outer"><div id="revert-gauge-inner"></div></div>
-  <div id="revert-key">[Q] キーで戻す</div>
+  <div id="revert-key">
+    <span id="revert-key-hint">[Q] キーで戻す</span>
+    <span id="revert-tap-hint">タップで戻す</span>
+  </div>
 </div>
+
+<div id="joystick-base"></div>
+<div id="joystick-knob"></div>
 
 <div id="gameover">
   <div>やられた…</div>
@@ -624,12 +670,115 @@ function readMoveVector() {
   if (keys["s"] || keys["arrowdown"]) my += 1;
   if (keys["a"] || keys["arrowleft"]) mx -= 1;
   if (keys["d"] || keys["arrowright"]) mx += 1;
+
+  // スマホのバーチャルスティック入力があればそちらを優先する
+  if (joystick.active) {
+    mx = joystick.vx;
+    my = joystick.vy;
+  }
+
   if (mx !== 0 || my !== 0) {
     const len = Math.hypot(mx, my);
     mx /= len; my /= len;
   }
   return { mx, my };
 }
+
+// ----------------------------------------------------------------------
+// スマホ向けタッチ操作
+//   - 画面をドラッグした場所にバーチャルスティックがその場で出現する方式
+//   - リバートは画面隅のパネルをタップで発動（キーボードのQと同じ処理を呼ぶ）
+// ----------------------------------------------------------------------
+if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+  document.documentElement.classList.add("is-touch");
+}
+
+const joystickBaseEl = document.getElementById("joystick-base");
+const joystickKnobEl = document.getElementById("joystick-knob");
+const JOYSTICK_MAX_RADIUS = 50; // これ以上ノブが離れても入力量は頭打ちにする
+
+const joystick = {
+  active: false,
+  touchId: null,
+  originX: 0, originY: 0,
+  vx: 0, vy: 0,
+};
+
+function joystickStart(x, y, touchId) {
+  joystick.active = true;
+  joystick.touchId = touchId;
+  joystick.originX = x;
+  joystick.originY = y;
+  joystick.vx = 0;
+  joystick.vy = 0;
+
+  joystickBaseEl.style.left = x + "px";
+  joystickBaseEl.style.top = y + "px";
+  joystickBaseEl.style.display = "block";
+  joystickKnobEl.style.left = x + "px";
+  joystickKnobEl.style.top = y + "px";
+  joystickKnobEl.style.display = "block";
+}
+
+function joystickMove(x, y) {
+  if (!joystick.active) return;
+  let dx = x - joystick.originX;
+  let dy = y - joystick.originY;
+  const d = Math.hypot(dx, dy);
+  if (d > JOYSTICK_MAX_RADIUS) {
+    dx = (dx / d) * JOYSTICK_MAX_RADIUS;
+    dy = (dy / d) * JOYSTICK_MAX_RADIUS;
+  }
+  joystickKnobEl.style.left = (joystick.originX + dx) + "px";
+  joystickKnobEl.style.top = (joystick.originY + dy) + "px";
+
+  // 中心から数px以上離れていない微小な揺れは移動に反映しない（誤入力防止）
+  if (d < 6) { joystick.vx = 0; joystick.vy = 0; }
+  else { joystick.vx = dx / JOYSTICK_MAX_RADIUS; joystick.vy = dy / JOYSTICK_MAX_RADIUS; }
+}
+
+function joystickEnd() {
+  joystick.active = false;
+  joystick.touchId = null;
+  joystick.vx = 0;
+  joystick.vy = 0;
+  joystickBaseEl.style.display = "none";
+  joystickKnobEl.style.display = "none";
+}
+
+// キャンバス上のタッチだけをスティック入力として扱う
+// （リバートパネルなど他のUI要素の上のタッチはここに来ない＝別ハンドラで処理される）
+canvas.addEventListener("touchstart", (ev) => {
+  if (joystick.active) return; // 既に1本操作中なら追加のタッチは無視（1本指操作のみ対応）
+  const t = ev.changedTouches[0];
+  joystickStart(t.clientX, t.clientY, t.identifier);
+  ev.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (ev) => {
+  for (const t of ev.changedTouches) {
+    if (t.identifier === joystick.touchId) {
+      joystickMove(t.clientX, t.clientY);
+    }
+  }
+  ev.preventDefault();
+}, { passive: false });
+
+function handleTouchEnd(ev) {
+  for (const t of ev.changedTouches) {
+    if (t.identifier === joystick.touchId) joystickEnd();
+  }
+}
+canvas.addEventListener("touchend", handleTouchEnd);
+canvas.addEventListener("touchcancel", handleTouchEnd);
+
+// リバートパネルはタップで即発動（表示されている＝リバート可能な時だけ意味を持つ）
+// ※ revertPanel 変数はこの後のHUD更新セクションで定義されるため、ここではIDで直接取得する
+document.getElementById("revert-panel").addEventListener("touchstart", (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  revertWeapon();
+}, { passive: false });
 
 // ----------------------------------------------------------------------
 // ゲーム状態

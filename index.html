@@ -140,7 +140,7 @@
 
 <div id="hud">
   <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
-  <div id="hp-text">HP 100 / 100</div>
+  <div id="hp-text">HP 120 / 120</div>
   <div id="weapon-info">素手</div>
 </div>
 
@@ -283,10 +283,10 @@ const player = {
   r: 16,
   speed: 220, // px/秒
   color: "#ffcc00",
-  hp: 100,
-  maxHp: 100,
+  hp: 120,
+  maxHp: 120,
   invincibleUntil: 0,
-  invincibleMs: 500,
+  invincibleMs: 700, // 被弾後の無敵時間。短すぎると連続ヒットで一瞬で溶けるため延長
   facingX: 0, facingY: -1, // 直前に動いた向き（前方判定に使う）
 
   // 現在装備している武器。null=素手
@@ -305,8 +305,8 @@ const UNARMED_WEAPON = {
   weaponType: "sword",
   rank: "mid",
   multiplier: 1.0,
-  basePower: 3,
-  cooldownMs: 700,
+  basePower: 4, // 3→4。武器を拾うまでの間が無力すぎたので少し底上げ
+  cooldownMs: 550, // 700→550。手数を増やして序盤の詰みを緩和
   range: 44,
   jackpotEffect: null,
   color: "#dddddd",
@@ -403,7 +403,7 @@ function spawnZombie() {
     x, y, r: 15,
     speed: 75,
     hp: 20, maxHp: 20,
-    contactDamage: 8,
+    contactDamage: 6, // 8→6。無敵時間延長とあわせて被弾時の痛さを調整
     color: "#7fae5b",
   });
 }
@@ -416,8 +416,8 @@ function spawnRolling() {
     speedApproach: 55,
     speedCharge: 320,
     hp: 16, maxHp: 16,
-    contactDamageNormal: 5,
-    contactDamageCharge: 18,
+    contactDamageNormal: 4, // 5→4
+    contactDamageCharge: 13, // 18→13。突進は避けるべき脅威として残しつつ即死圧を下げる
     state: "approach", // approach -> telegraph -> charge -> approach
     stateTimer: 0,
     chargeDirX: 0, chargeDirY: 0,

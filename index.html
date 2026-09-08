@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>放課後サバイバー（仮）- Phase1</title>
+<title>放課後サバイバー（仮）- Phase1 v2</title>
 <style>
   html, body {
     margin: 0;
@@ -20,7 +20,6 @@
   }
 
   /* ---------- スマホ用バーチャルスティック ---------- */
-  /* 画面をタッチした場所にその場で出現し、指を離すと消える方式 */
   #joystick-base {
     position: fixed;
     width: 100px;
@@ -47,18 +46,7 @@
     z-index: 6;
   }
 
-  /* ---------- スマホ用リバートボタン ---------- */
-  /* PCでは[Q]キー、タッチ端末ではこのボタンをタップで直前の武器に戻す */
-  #revert-panel {
-    touch-action: none;
-  }
-  #revert-tap-hint {
-    display: none;
-  }
-  .is-touch #revert-tap-hint { display: inline; }
-  .is-touch #revert-key-hint { display: none; }
-
-  /* ---------- HUD（HP・武器情報） ---------- */
+  /* ---------- HUD（HP・タイマー・回収数） ---------- */
   #hud {
     position: fixed;
     top: 12px;
@@ -85,7 +73,7 @@
     font-size: 12px;
     margin-top: 2px;
   }
-  #weapon-info {
+  #collect-status {
     margin-top: 10px;
     font-size: 14px;
     background: rgba(0,0,0,0.35);
@@ -93,22 +81,31 @@
     border-radius: 4px;
     display: inline-block;
   }
-  #weapon-info .rank-low { color: #ccc; }
-  #weapon-info .rank-mid { color: #fff; font-weight: bold; }
-  #weapon-info .rank-high { color: #6cf0ff; font-weight: bold; }
-  #weapon-info .rank-jackpot { color: #ffd23f; font-weight: bold; text-shadow: 0 0 6px #ffb300; }
 
-  /* ---------- 拾得通知（画面上部中央） ---------- */
+  #phase-timer {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #fff;
+    font-size: 28px;
+    font-weight: bold;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    pointer-events: none;
+  }
+  #phase-timer.warning { color: #ff6b6b; }
+
+  /* ---------- 拾得の短い通知 ---------- */
   #pickup-notice {
     position: fixed;
-    top: 24px;
+    top: 60px;
     left: 50%;
     transform: translate(-50%, -12px);
     background: rgba(0,0,0,0.6);
     color: #fff;
-    padding: 8px 20px;
+    padding: 6px 18px;
     border-radius: 20px;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: bold;
     opacity: 0;
     transition: opacity 0.15s ease-out, transform 0.15s ease-out;
@@ -120,57 +117,157 @@
     transform: translate(-50%, 0);
   }
 
-  /* ---------- リバートUI（画面隅） ---------- */
-  #revert-panel {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    width: 150px;
-    background: rgba(0,0,0,0.5);
-    border: 2px solid #fff;
-    border-radius: 8px;
-    padding: 8px;
-    color: #fff;
-    display: none;
-  }
-  #revert-panel.active { display: block; }
-  #revert-label {
-    font-size: 12px;
-    margin-bottom: 4px;
-  }
-  #revert-gauge-outer {
-    width: 100%;
-    height: 8px;
-    background: rgba(255,255,255,0.2);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  #revert-gauge-inner {
-    height: 100%;
-    width: 100%;
-    background: #ffd23f;
-  }
-  #revert-key {
-    font-size: 11px;
-    opacity: 0.8;
-    margin-top: 4px;
-  }
-
-  #gameover {
+  /* ---------- フェーズ切り替え用の暗転メッセージ ---------- */
+  #phase-banner {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.75);
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    font-weight: bold;
+    letter-spacing: 0.1em;
+    z-index: 20;
+    pointer-events: none;
+  }
+  #phase-banner.show { display: flex; }
+
+  /* ---------- 準備フェーズ（HTMLオーバーレイのUI） ---------- */
+  #prep-screen {
+    position: fixed;
+    inset: 0;
+    background: rgba(15,17,22,0.96);
+    color: #fff;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    z-index: 30;
+  }
+  #prep-screen.show { display: flex; }
+  #prep-screen h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+  }
+  #prep-screen .prep-sub {
+    font-size: 13px;
+    opacity: 0.75;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  .prep-section-title {
+    font-size: 14px;
+    opacity: 0.8;
+    margin: 12px 0 8px;
+    align-self: flex-start;
+  }
+
+  #loadout-slots {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .loadout-slot {
+    width: 84px;
+    height: 84px;
+    border: 2px dashed rgba(255,255,255,0.35);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    font-size: 11px;
+    text-align: center;
+    cursor: pointer;
+    background: rgba(255,255,255,0.04);
+  }
+  .loadout-slot.filled {
+    border-style: solid;
+    border-color: #ffd23f;
+    background: rgba(255,210,63,0.12);
+  }
+  .loadout-slot .slot-name { font-size: 12px; font-weight: bold; margin-top: 4px; }
+
+  #material-pool {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    max-width: 640px;
+    margin-bottom: 20px;
+  }
+  .material-card {
+    width: 90px;
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 2px solid rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.05);
+    text-align: center;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .material-card.selected {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .material-card .card-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    margin: 0 auto 6px;
+  }
+  .material-card .card-name { font-weight: bold; }
+  .material-card .card-rank { margin-top: 2px; }
+  .rank-low { color: #ccc; }
+  .rank-mid { color: #fff; font-weight: bold; }
+  .rank-high { color: #6cf0ff; font-weight: bold; }
+  .rank-jackpot { color: #ffd23f; font-weight: bold; text-shadow: 0 0 6px #ffb300; }
+
+  #prep-empty-note {
+    font-size: 13px;
+    opacity: 0.6;
+    margin-bottom: 20px;
+  }
+
+  #go-battle-button {
+    font-size: 16px;
+    padding: 10px 28px;
+    border-radius: 24px;
+    border: none;
+    background: #ffd23f;
+    color: #2b2200;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #go-battle-button:disabled {
+    background: #555;
+    color: #999;
+    cursor: not-allowed;
+  }
+
+  /* ---------- 戦闘フェーズ（未実装のスタブ画面） ---------- */
+  #combat-stub {
+    position: fixed;
+    inset: 0;
+    background: rgba(15,17,22,0.96);
     color: #fff;
     display: none;
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    font-size: 28px;
-    gap: 12px;
+    gap: 14px;
+    z-index: 30;
+    text-align: center;
+    padding: 20px;
+    box-sizing: border-box;
   }
-  #gameover.show { display: flex; }
-  #gameover button {
-    font-size: 16px;
+  #combat-stub.show { display: flex; }
+  #combat-stub button {
+    font-size: 15px;
     padding: 8px 20px;
     cursor: pointer;
   }
@@ -181,44 +278,50 @@
 <div id="hud">
   <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
   <div id="hp-text">HP 120 / 120</div>
-  <div id="weapon-info">素手</div>
+  <div id="collect-status">回収: 0個</div>
 </div>
 
+<div id="phase-timer"></div>
 <div id="pickup-notice"></div>
+<div id="phase-banner"></div>
 
-<div id="revert-panel">
-  <div id="revert-label">直前の武器: ―</div>
-  <div id="revert-gauge-outer"><div id="revert-gauge-inner"></div></div>
-  <div id="revert-key">
-    <span id="revert-key-hint">[Q] キーで戻す</span>
-    <span id="revert-tap-hint">タップで戻す</span>
-  </div>
+<div id="prep-screen">
+  <h1>準備フェーズ：装備を選ぼう</h1>
+  <p class="prep-sub">回収した素材から、戦闘で使う武器を最大3つまで選んでください。<br>質ランクが高いほど強力です。</p>
+
+  <div class="prep-section-title">現在の装備（タップで外す）</div>
+  <div id="loadout-slots"></div>
+
+  <div class="prep-section-title">回収した素材（タップで装備）</div>
+  <div id="material-pool"></div>
+  <div id="prep-empty-note" style="display:none;">回収した素材がありません。素手のまま出撃することになります。</div>
+
+  <button id="go-battle-button">出撃する</button>
 </div>
 
-<div id="joystick-base"></div>
-<div id="joystick-knob"></div>
-
-<div id="gameover">
-  <div>やられた…</div>
-  <button id="retry-button">もう一度挑む</button>
+<div id="combat-stub">
+  <h2>ここまで実装できました！</h2>
+  <p id="combat-stub-loadout"></p>
+  <p style="font-size:13px; opacity:0.7; max-width:480px;">
+    戦闘フェーズ（サバイバーライク本編）と、道中で拾う「遺物」システムは次のステップで実装します。
+  </p>
+  <button id="restart-run-button">回収フェーズからやり直す</button>
 </div>
 
 <canvas id="game"></canvas>
+<div id="joystick-base"></div>
+<div id="joystick-knob"></div>
 
 <script>
 "use strict";
 
 // ======================================================================
-// 放課後サバイバー Phase1 プロトタイプ
-// 単一HTMLファイル / Canvas + 素のJS（ビルドツールなし）
-//
-// 全体の流れ:
-//  1. プレイヤーが移動する
-//  2. 敵（追跡型・突進型）がプレイヤーを狙って動く
-//  3. プレイヤーは装備中の武器で自動的に敵を攻撃する
-//  4. 敵を倒す／落ちている素材に触れると、即座にその素材が武器化する
-//     （武器化と同時に「質ランク」を1回だけ抽選）
-//  5. 拾得演出＋数秒間だけ直前の武器に戻せる「リバートUI」を出す
+// 放課後サバイバー Phase1 v2
+// 1回のプレイ = 「回収フェーズ → 準備フェーズ → 戦闘フェーズ」の3部構成
+//   ・回収フェーズ：制限時間内に素材を拾い集める。徘徊する敵に触れるとダメージ
+//     （このダメージは戦闘フェーズまで持ち越し）
+//   ・準備フェーズ：集めた素材から、装備する武器を最大3つ選ぶ
+//   ・戦闘フェーズ：今回はまだ未実装（次のステップ）。選んだ装備の確認画面のみ
 // ======================================================================
 
 const canvas = document.getElementById("game");
@@ -244,6 +347,7 @@ function circlesOverlap(ax, ay, ar, bx, by, br) {
 function dist(ax, ay, bx, by) {
   return Math.hypot(ax - bx, ay - by);
 }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
 // ----------------------------------------------------------------------
 // 素材データ（フェーズ1で使う4種のみ）
@@ -251,65 +355,46 @@ function dist(ax, ay, bx, by) {
 // ----------------------------------------------------------------------
 const MATERIALS = {
   ballpoint_pen: {
-    id: "ballpoint_pen",
-    name: "ボールペン",
-    weaponType: "sword",
-    qualityType: "stable",
+    id: "ballpoint_pen", name: "ボールペン", weaponType: "sword", qualityType: "stable",
     qualityTable: [
       { rank: "low", chance: 0.15, multiplier: 0.7 },
       { rank: "mid", chance: 0.70, multiplier: 1.0 },
       { rank: "high", chance: 0.15, multiplier: 1.4 },
     ],
-    basePower: 10,
-    jackpotEffect: "small_area_ink_splash",
-    color: "#4d8dff",
+    basePower: 10, jackpotEffect: "small_area_ink_splash", color: "#4d8dff",
   },
   protractor: {
-    id: "protractor",
-    name: "分度器",
-    weaponType: "shield",
-    qualityType: "stable",
+    id: "protractor", name: "分度器", weaponType: "shield", qualityType: "stable",
     qualityTable: [
       { rank: "low", chance: 0.15, multiplier: 0.7 },
       { rank: "mid", chance: 0.70, multiplier: 1.0 },
       { rank: "high", chance: 0.15, multiplier: 1.4 },
     ],
-    basePower: 8,
-    jackpotEffect: "reflect_area_expand",
-    color: "#ffb84d",
+    basePower: 8, jackpotEffect: "reflect_area_expand", color: "#ffb84d",
   },
   chalk: {
-    id: "chalk",
-    name: "チョーク",
-    weaponType: "thrown",
-    qualityType: "romance",
+    id: "chalk", name: "チョーク", weaponType: "thrown", qualityType: "romance",
     qualityTable: [
       { rank: "low", chance: 0.90, multiplier: 0.5 },
       { rank: "mid", chance: 0.09, multiplier: 1.5 },
       { rank: "jackpot", chance: 0.01, multiplier: 3.0 },
     ],
-    basePower: 4,
-    jackpotEffect: "smoke_field_debuff",
-    color: "#f5f5f5",
+    basePower: 4, jackpotEffect: "smoke_field_debuff", color: "#f5f5f5",
   },
   weed_from_windowsill: {
-    id: "weed_from_windowsill",
-    name: "窓際の雑草",
-    weaponType: "thrown",
-    qualityType: "romance",
+    id: "weed_from_windowsill", name: "窓際の雑草", weaponType: "thrown", qualityType: "romance",
     qualityTable: [
       { rank: "low", chance: 0.90, multiplier: 0.4 },
       { rank: "mid", chance: 0.09, multiplier: 1.4 },
       { rank: "jackpot", chance: 0.01, multiplier: 3.5 },
     ],
-    basePower: 3,
-    jackpotEffect: "pollen_debuff_field",
-    color: "#5ec95e",
+    basePower: 3, jackpotEffect: "pollen_debuff_field", color: "#5ec95e",
   },
 };
 const MATERIAL_IDS = Object.keys(MATERIALS);
+const RANK_LABEL = { low: "low", mid: "mid", high: "HIGH", jackpot: "JACKPOT!!" };
 
-// 質ランクを1回だけ抽選する
+// 質ランクを1回だけ抽選する（＝素材が世界に発生した瞬間に呼ぶ）
 function rollQuality(material) {
   const r = Math.random();
   let acc = 0;
@@ -317,351 +402,55 @@ function rollQuality(material) {
     acc += entry.chance;
     if (r < acc) return entry;
   }
-  // 端数誤差対策で最後の要素を返す
   return material.qualityTable[material.qualityTable.length - 1];
 }
 
-// ----------------------------------------------------------------------
-// プレイヤー
-// ----------------------------------------------------------------------
-const player = {
-  x: 0, y: 0,
-  r: 16,
-  speed: 220, // px/秒
-  color: "#ffcc00",
-  hp: 120,
-  maxHp: 120,
-  invincibleUntil: 0,
-  invincibleMs: 700, // 被弾後の無敵時間。短すぎると連続ヒットで一瞬で溶けるため延長
-  facingX: 0, facingY: -1, // 直前に動いた向き（前方判定に使う）
-
-  // 現在装備している武器。null=素手
-  weapon: null,
-  lastAttackAt: 0,
-
-  // リバート用に1つだけ保持する「直前の武器」
-  previousWeapon: null,
-  previousWeaponExpireAt: 0,
-  REVERT_WINDOW_MS: 4000,
-};
-
-const UNARMED_WEAPON = {
-  materialId: null,
-  name: "素手",
-  weaponType: "sword",
-  rank: "mid",
-  multiplier: 1.0,
-  basePower: 4, // 3→4。武器を拾うまでの間が無力すぎたので少し底上げ
-  cooldownMs: 550, // 700→550。手数を増やして序盤の詰みを緩和
-  range: 44,
-  jackpotEffect: null,
-  color: "#dddddd",
-};
-
-function resetPlayer() {
-  player.x = canvas.width / 2;
-  player.y = canvas.height / 2;
-  player.hp = player.maxHp;
-  player.invincibleUntil = 0;
-  player.weapon = null;
-  player.previousWeapon = null;
-  player.previousWeaponExpireAt = 0;
-}
-
-// ----------------------------------------------------------------------
-// 武器化ロジック
-// ----------------------------------------------------------------------
-// 素材オブジェクト（フィールドに落ちている／敵が落とした瞬間のもの）を
-// 実際に装備できる「武器データ」に変換する。質ランクはここでは引かない
-// （素材が生成された瞬間に既に抽選済みのものをそのまま使う）。
-function materialDropToWeapon(drop) {
-  const mat = MATERIALS[drop.materialId];
+// 装備武器データに変換（質ランクは既に決まっている前提。ここでは抽選しない）
+function toEquippedWeapon(pickedItem) {
+  const mat = MATERIALS[pickedItem.materialId];
   const cooldownByType = { sword: 450, shield: 900, thrown: 650 };
   const rangeByType = { sword: 60, shield: 78, thrown: 230 };
   return {
     materialId: mat.id,
     name: mat.name,
     weaponType: mat.weaponType,
-    rank: drop.rank,
-    multiplier: drop.multiplier,
+    rank: pickedItem.rank,
+    multiplier: pickedItem.multiplier,
     basePower: mat.basePower,
     cooldownMs: cooldownByType[mat.weaponType],
     range: rangeByType[mat.weaponType],
-    jackpotEffect: drop.rank === "jackpot" ? mat.jackpotEffect : null,
+    jackpotEffect: pickedItem.rank === "jackpot" ? mat.jackpotEffect : null,
     color: mat.color,
   };
 }
 
-function equipWeapon(newWeapon) {
-  // 今持っている武器を「直前の武器」としてリバート枠に上書きする
-  // （リバート待機中に新しい素材を拾った場合も、常にひとつ前に上書きされる）
-  player.previousWeapon = player.weapon; // null=素手だった場合も保持
-  player.previousWeaponExpireAt = performance.now() + player.REVERT_WINDOW_MS;
+// ----------------------------------------------------------------------
+// プレイヤー（HPは回収フェーズ→戦闘フェーズを通して共通で持ち越す）
+// ----------------------------------------------------------------------
+const player = {
+  x: 0, y: 0,
+  r: 16,
+  speed: 220,
+  color: "#ffcc00",
+  hp: 120,
+  maxHp: 120,
+  invincibleUntil: 0,
+  invincibleMs: 700,
+  facingX: 0, facingY: -1,
+};
 
-  player.weapon = newWeapon;
-  showPickupNotice(newWeapon);
-}
-
-function revertWeapon() {
-  if (!player.previousWeapon && player.previousWeapon !== null) return;
-  if (performance.now() > player.previousWeaponExpireAt) return; // 期限切れ
-  if (player.previousWeaponExpireAt === 0) return; // そもそも枠が無い
-
-  player.weapon = player.previousWeapon;
-  player.previousWeapon = null;
-  player.previousWeaponExpireAt = 0;
-  flashRevertNotice();
+function resetRun() {
+  player.hp = player.maxHp;
+  player.invincibleUntil = 0;
+  collectedMaterials.length = 0;
+  loadout.length = 0;
 }
 
 // ----------------------------------------------------------------------
-// 拾得演出（画面上部中央の通知）
-// ----------------------------------------------------------------------
-const noticeEl = document.getElementById("pickup-notice");
-let noticeTimer = null;
-function showPickupNotice(weapon) {
-  const label = weapon ? `${weapon.name}を装備！` : "素手に戻った！";
-  noticeEl.textContent = label;
-  noticeEl.classList.remove("show");
-  // 一度リフローさせてからON→CSSトランジションで0.15〜0.3秒程度のふわっと表示にする
-  void noticeEl.offsetWidth;
-  noticeEl.classList.add("show");
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => noticeEl.classList.remove("show"), 900);
-}
-function flashRevertNotice() {
-  noticeEl.textContent = `${player.weapon ? player.weapon.name : "素手"}に戻した！`;
-  noticeEl.classList.remove("show");
-  void noticeEl.offsetWidth;
-  noticeEl.classList.add("show");
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => noticeEl.classList.remove("show"), 900);
-}
-
-// ----------------------------------------------------------------------
-// 敵
-// ----------------------------------------------------------------------
-const enemies = [];
-
-function spawnZombie() {
-  const { x, y } = randomEdgePosition();
-  enemies.push({
-    type: "zombie",
-    x, y, r: 15,
-    speed: 75,
-    hp: 20, maxHp: 20,
-    contactDamage: 6, // 8→6。無敵時間延長とあわせて被弾時の痛さを調整
-    color: "#7fae5b",
-  });
-}
-
-function spawnRolling() {
-  const { x, y } = randomEdgePosition();
-  enemies.push({
-    type: "rolling",
-    x, y, r: 14,
-    speedApproach: 55,
-    speedCharge: 320,
-    hp: 16, maxHp: 16,
-    contactDamageNormal: 4, // 5→4
-    contactDamageCharge: 13, // 18→13。突進は避けるべき脅威として残しつつ即死圧を下げる
-    state: "approach", // approach -> telegraph -> charge -> approach
-    stateTimer: 0,
-    chargeDirX: 0, chargeDirY: 0,
-    triggerDist: 170,
-    telegraphMs: 450,
-    chargeMs: 550,
-    color: "#c97b3d",
-  });
-}
-
-function randomEdgePosition() {
-  const side = Math.floor(Math.random() * 4);
-  const margin = 40;
-  if (side === 0) return { x: -margin, y: Math.random() * canvas.height };
-  if (side === 1) return { x: canvas.width + margin, y: Math.random() * canvas.height };
-  if (side === 2) return { x: Math.random() * canvas.width, y: -margin };
-  return { x: Math.random() * canvas.width, y: canvas.height + margin };
-}
-
-function updateZombie(e, dt) {
-  const dx = player.x - e.x, dy = player.y - e.y;
-  const d = Math.hypot(dx, dy) || 1;
-  const slow = e.slowFactor || 1;
-  e.x += (dx / d) * e.speed * slow * dt;
-  e.y += (dy / d) * e.speed * slow * dt;
-}
-
-function updateRolling(e, dt) {
-  const dx = player.x - e.x, dy = player.y - e.y;
-  const d = Math.hypot(dx, dy) || 1;
-  const slow = e.slowFactor || 1;
-
-  if (e.state === "approach") {
-    e.x += (dx / d) * e.speedApproach * slow * dt;
-    e.y += (dy / d) * e.speedApproach * slow * dt;
-    if (d <= e.triggerDist) {
-      e.state = "telegraph";
-      e.stateTimer = 0;
-      // 突進方向はこの瞬間のプレイヤー方向で固定（助走→加速）
-      e.chargeDirX = dx / d;
-      e.chargeDirY = dy / d;
-    }
-  } else if (e.state === "telegraph") {
-    e.stateTimer += dt * 1000;
-    if (e.stateTimer >= e.telegraphMs) {
-      e.state = "charge";
-      e.stateTimer = 0;
-    }
-  } else if (e.state === "charge") {
-    e.x += e.chargeDirX * e.speedCharge * dt;
-    e.y += e.chargeDirY * e.speedCharge * dt;
-    e.stateTimer += dt * 1000;
-    if (e.stateTimer >= e.chargeMs) {
-      e.state = "approach";
-      e.stateTimer = 0;
-    }
-  }
-}
-
-function enemyIsCharging(e) {
-  return e.type === "rolling" && e.state === "charge";
-}
-
-// ----------------------------------------------------------------------
-// フィールド上の素材ドロップ（「発生した瞬間」に質ランクを抽選済み）
-// ----------------------------------------------------------------------
-const materialDrops = [];
-
-function createMaterialDrop(x, y, materialId) {
-  const mat = MATERIALS[materialId];
-  const rolled = rollQuality(mat); // ← ここが「発生の瞬間」の1回きりの抽選
-  materialDrops.push({
-    x, y, r: 10,
-    materialId,
-    rank: rolled.rank,
-    multiplier: rolled.multiplier,
-    spawnAt: performance.now(),
-  });
-}
-
-function spawnFieldMaterial() {
-  if (materialDrops.length >= 4) return; // 場に出す数の上限
-  const id = MATERIAL_IDS[Math.floor(Math.random() * MATERIAL_IDS.length)];
-  const margin = 60;
-  const x = margin + Math.random() * (canvas.width - margin * 2);
-  const y = margin + Math.random() * (canvas.height - margin * 2);
-  createMaterialDrop(x, y, id);
-}
-
-// ----------------------------------------------------------------------
-// 演出用エフェクトゾーン（大当たり効果：煙幕・花粉フィールドなど）
-// 敵にだけダメージ／スロウを与える、動かない円。これも中心＋半径の円判定。
-// ----------------------------------------------------------------------
-const effectZones = [];
-function spawnEffectZone(x, y, r, durationMs, dps, slowFactor) {
-  effectZones.push({ x, y, r, expireAt: performance.now() + durationMs, dps, slowFactor });
-}
-
-// 攻撃エフェクト（見た目だけの一瞬の円。減衰して消える）
-const attackFx = [];
-function spawnAttackFx(x, y, r, color) {
-  attackFx.push({ x, y, r, color, bornAt: performance.now(), lifeMs: 180 });
-}
-
-// ふわっと消える簡易ダメージ数値
-const floatingTexts = [];
-function spawnFloatingText(x, y, text, color) {
-  floatingTexts.push({ x, y, text, color, bornAt: performance.now(), lifeMs: 600 });
-}
-
-// ----------------------------------------------------------------------
-// 武器攻撃ロジック
-// ----------------------------------------------------------------------
-function weaponDamage(weapon) {
-  return Math.max(1, Math.round(weapon.basePower * weapon.multiplier));
-}
-
-function findNearestEnemy(x, y, maxRange) {
-  let best = null, bestDist = Infinity;
-  for (const e of enemies) {
-    const d = dist(x, y, e.x, e.y);
-    if (d <= maxRange && d < bestDist) { best = e; bestDist = d; }
-  }
-  return best;
-}
-
-function damageEnemy(e, amount, knockback) {
-  e.hp -= amount;
-  spawnFloatingText(e.x, e.y - e.r - 4, `-${amount}`, "#fff");
-  if (knockback) {
-    const d = dist(player.x, player.y, e.x, e.y) || 1;
-    const kx = (e.x - player.x) / d, ky = (e.y - player.y) / d;
-    e.x += kx * knockback;
-    e.y += ky * knockback;
-  }
-}
-
-function tryAttack(now) {
-  const weapon = player.weapon || UNARMED_WEAPON;
-  if (now - player.lastAttackAt < weapon.cooldownMs) return;
-
-  if (weapon.weaponType === "sword") {
-    // プレイヤーの少し前方を中心にした円範囲攻撃
-    let radius = weapon.range;
-    if (weapon.jackpotEffect === "small_area_ink_splash") radius *= 1.5;
-    const cx = player.x + player.facingX * 20;
-    const cy = player.y + player.facingY * 20;
-    const dmg = weaponDamage(weapon);
-    let hitAny = false;
-    for (const e of enemies) {
-      if (circlesOverlap(cx, cy, radius, e.x, e.y, e.r)) {
-        damageEnemy(e, dmg, 8);
-        if (weapon.jackpotEffect === "small_area_ink_splash") {
-          e.dotUntil = now + 3000;
-          e.dotDps = 2;
-        }
-        hitAny = true;
-      }
-    }
-    spawnAttackFx(cx, cy, radius, weapon.color);
-    if (hitAny) player.lastAttackAt = now; else player.lastAttackAt = now; // 空振りでもクールダウンは進む(素振り)
-  } else if (weapon.weaponType === "shield") {
-    let radius = weapon.range;
-    if (weapon.jackpotEffect === "reflect_area_expand") radius *= 1.5;
-    const dmg = weaponDamage(weapon);
-    for (const e of enemies) {
-      if (circlesOverlap(player.x, player.y, radius, e.x, e.y, e.r)) {
-        damageEnemy(e, dmg, 26); // シールドは吹き飛ばし強め
-      }
-    }
-    spawnAttackFx(player.x, player.y, radius, weapon.color);
-    player.lastAttackAt = now;
-  } else if (weapon.weaponType === "thrown") {
-    const target = findNearestEnemy(player.x, player.y, weapon.range);
-    if (target) {
-      const dmg = weaponDamage(weapon);
-      const hitR = 30;
-      damageEnemy(target, dmg, 6);
-      spawnAttackFx(target.x, target.y, hitR, weapon.color);
-      if (weapon.jackpotEffect === "smoke_field_debuff") {
-        spawnEffectZone(target.x, target.y, 50, 3000, 3, 0.4);
-      } else if (weapon.jackpotEffect === "pollen_debuff_field") {
-        spawnEffectZone(target.x, target.y, 55, 4000, 1, 0.5);
-      }
-      player.lastAttackAt = now;
-    }
-    // 範囲内に敵がいない間はクールダウンを消費しない（待機）
-  }
-}
-
-// ----------------------------------------------------------------------
-// 入力
+// 入力（キーボード）
 // ----------------------------------------------------------------------
 const keys = {};
-window.addEventListener("keydown", (ev) => {
-  keys[ev.key.toLowerCase()] = true;
-  if (ev.key.toLowerCase() === "q") revertWeapon();
-});
+window.addEventListener("keydown", (ev) => { keys[ev.key.toLowerCase()] = true; });
 window.addEventListener("keyup", (ev) => { keys[ev.key.toLowerCase()] = false; });
 
 function readMoveVector() {
@@ -671,7 +460,6 @@ function readMoveVector() {
   if (keys["a"] || keys["arrowleft"]) mx -= 1;
   if (keys["d"] || keys["arrowright"]) mx += 1;
 
-  // スマホのバーチャルスティック入力があればそちらを優先する
   if (joystick.active) {
     mx = joystick.vx;
     my = joystick.vy;
@@ -685,24 +473,15 @@ function readMoveVector() {
 }
 
 // ----------------------------------------------------------------------
-// スマホ向けタッチ操作
-//   - 画面をドラッグした場所にバーチャルスティックがその場で出現する方式
-//   - リバートは画面隅のパネルをタップで発動（キーボードのQと同じ処理を呼ぶ）
+// スマホ向けタッチ操作（バーチャルスティック）
 // ----------------------------------------------------------------------
 if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
   document.documentElement.classList.add("is-touch");
 }
-
 const joystickBaseEl = document.getElementById("joystick-base");
 const joystickKnobEl = document.getElementById("joystick-knob");
-const JOYSTICK_MAX_RADIUS = 50; // これ以上ノブが離れても入力量は頭打ちにする
-
-const joystick = {
-  active: false,
-  touchId: null,
-  originX: 0, originY: 0,
-  vx: 0, vy: 0,
-};
+const JOYSTICK_MAX_RADIUS = 50;
+const joystick = { active: false, touchId: null, originX: 0, originY: 0, vx: 0, vy: 0 };
 
 function joystickStart(x, y, touchId) {
   joystick.active = true;
@@ -711,7 +490,6 @@ function joystickStart(x, y, touchId) {
   joystick.originY = y;
   joystick.vx = 0;
   joystick.vy = 0;
-
   joystickBaseEl.style.left = x + "px";
   joystickBaseEl.style.top = y + "px";
   joystickBaseEl.style.display = "block";
@@ -719,7 +497,6 @@ function joystickStart(x, y, touchId) {
   joystickKnobEl.style.top = y + "px";
   joystickKnobEl.style.display = "block";
 }
-
 function joystickMove(x, y) {
   if (!joystick.active) return;
   let dx = x - joystick.originX;
@@ -731,39 +508,28 @@ function joystickMove(x, y) {
   }
   joystickKnobEl.style.left = (joystick.originX + dx) + "px";
   joystickKnobEl.style.top = (joystick.originY + dy) + "px";
-
-  // 中心から数px以上離れていない微小な揺れは移動に反映しない（誤入力防止）
   if (d < 6) { joystick.vx = 0; joystick.vy = 0; }
   else { joystick.vx = dx / JOYSTICK_MAX_RADIUS; joystick.vy = dy / JOYSTICK_MAX_RADIUS; }
 }
-
 function joystickEnd() {
   joystick.active = false;
   joystick.touchId = null;
-  joystick.vx = 0;
-  joystick.vy = 0;
+  joystick.vx = 0; joystick.vy = 0;
   joystickBaseEl.style.display = "none";
   joystickKnobEl.style.display = "none";
 }
-
-// キャンバス上のタッチだけをスティック入力として扱う
-// （リバートパネルなど他のUI要素の上のタッチはここに来ない＝別ハンドラで処理される）
 canvas.addEventListener("touchstart", (ev) => {
-  if (joystick.active) return; // 既に1本操作中なら追加のタッチは無視（1本指操作のみ対応）
+  if (joystick.active) return;
   const t = ev.changedTouches[0];
   joystickStart(t.clientX, t.clientY, t.identifier);
   ev.preventDefault();
 }, { passive: false });
-
 canvas.addEventListener("touchmove", (ev) => {
   for (const t of ev.changedTouches) {
-    if (t.identifier === joystick.touchId) {
-      joystickMove(t.clientX, t.clientY);
-    }
+    if (t.identifier === joystick.touchId) joystickMove(t.clientX, t.clientY);
   }
   ev.preventDefault();
 }, { passive: false });
-
 function handleTouchEnd(ev) {
   for (const t of ev.changedTouches) {
     if (t.identifier === joystick.touchId) joystickEnd();
@@ -772,205 +538,279 @@ function handleTouchEnd(ev) {
 canvas.addEventListener("touchend", handleTouchEnd);
 canvas.addEventListener("touchcancel", handleTouchEnd);
 
-// リバートパネルはタップで即発動（表示されている＝リバート可能な時だけ意味を持つ）
-// ※ revertPanel 変数はこの後のHUD更新セクションで定義されるため、ここではIDで直接取得する
-document.getElementById("revert-panel").addEventListener("touchstart", (ev) => {
-  ev.preventDefault();
-  ev.stopPropagation();
-  revertWeapon();
-}, { passive: false });
-
 // ----------------------------------------------------------------------
-// ゲーム状態
+// 演出まわり（拾得通知・フローティングテキストなど）
 // ----------------------------------------------------------------------
-let gameOver = false;
-let lastSpawnZombieAt = 0;
-let lastSpawnRollingAt = 0;
-let lastSpawnMaterialAt = 0;
-let elapsedMs = 0;
-
-function startGame() {
-  resetPlayer();
-  enemies.length = 0;
-  materialDrops.length = 0;
-  effectZones.length = 0;
-  attackFx.length = 0;
-  floatingTexts.length = 0;
-  gameOver = false;
-  elapsedMs = 0;
-  lastSpawnZombieAt = 0;
-  lastSpawnRollingAt = 0;
-  lastSpawnMaterialAt = 0;
-  document.getElementById("gameover").classList.remove("show");
+const noticeEl = document.getElementById("pickup-notice");
+let noticeTimer = null;
+function showNotice(text) {
+  noticeEl.textContent = text;
+  noticeEl.classList.remove("show");
+  void noticeEl.offsetWidth;
+  noticeEl.classList.add("show");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => noticeEl.classList.remove("show"), 800);
 }
 
-document.getElementById("retry-button").addEventListener("click", startGame);
+const floatingTexts = [];
+function spawnFloatingText(x, y, text, color) {
+  floatingTexts.push({ x, y, text, color, bornAt: performance.now(), lifeMs: 600 });
+}
 
-// ----------------------------------------------------------------------
-// 更新
-// ----------------------------------------------------------------------
-function update(dt, now) {
-  if (gameOver) return;
-  elapsedMs += dt * 1000;
+function drawAuraRing(x, y, r, strokeStyle, lineWidth) {
+  ctx.beginPath();
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth = lineWidth;
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
 
-  // --- プレイヤー移動 ---
-  const { mx, my } = readMoveVector();
-  if (mx !== 0 || my !== 0) {
-    player.facingX = mx; player.facingY = my;
+// ======================================================================
+// フェーズ管理
+// ======================================================================
+const PHASE = { COLLECT: "collect", PREP: "prep", COMBAT_STUB: "combat_stub" };
+let phase = PHASE.COLLECT;
+
+const phaseBannerEl = document.getElementById("phase-banner");
+function flashPhaseBanner(text, durationMs) {
+  phaseBannerEl.textContent = text;
+  phaseBannerEl.classList.add("show");
+  setTimeout(() => phaseBannerEl.classList.remove("show"), durationMs);
+}
+
+// ======================================================================
+// ① 回収フェーズ
+// ======================================================================
+const COLLECT_DURATION_MS = 45000;
+const COLLECT_MATERIAL_COUNT = 10; // 制限時間内に全部は拾いきれない数を意図的にばらまく
+
+let collectTimeLeftMs = COLLECT_DURATION_MS;
+const materialsOnField = []; // {x,y,r,materialId,rank,multiplier}
+const collectedMaterials = []; // 回収済み(まだ武器になっていない)素材。準備フェーズで使う
+const hazards = []; // 回収フェーズを徘徊する敵（ゾンビ化した生徒）
+
+function spawnHazard() {
+  const margin = 40;
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = -margin; y = Math.random() * canvas.height; }
+  else if (side === 1) { x = canvas.width + margin; y = Math.random() * canvas.height; }
+  else if (side === 2) { x = Math.random() * canvas.width; y = -margin; }
+  else { x = Math.random() * canvas.width; y = canvas.height + margin; }
+  hazards.push({ x, y, r: 15, speed: 70, contactDamage: 10 });
+}
+
+function scatterCollectMaterials() {
+  materialsOnField.length = 0;
+  const margin = 60;
+  for (let i = 0; i < COLLECT_MATERIAL_COUNT; i++) {
+    const id = MATERIAL_IDS[Math.floor(Math.random() * MATERIAL_IDS.length)];
+    const mat = MATERIALS[id];
+    const rolled = rollQuality(mat); // 発生した瞬間の1回きりの抽選
+    materialsOnField.push({
+      x: margin + Math.random() * (canvas.width - margin * 2),
+      y: margin + Math.random() * (canvas.height - margin * 2),
+      r: 10,
+      materialId: id,
+      rank: rolled.rank,
+      multiplier: rolled.multiplier,
+    });
   }
+}
+
+function startCollectPhase() {
+  phase = PHASE.COLLECT;
+  resetRun();
+  player.x = canvas.width / 2;
+  player.y = canvas.height / 2;
+  collectTimeLeftMs = COLLECT_DURATION_MS;
+  hazards.length = 0;
+  spawnHazard();
+  scatterCollectMaterials();
+  document.getElementById("prep-screen").classList.remove("show");
+  document.getElementById("combat-stub").classList.remove("show");
+  flashPhaseBanner("回収フェーズ開始！", 1200);
+}
+
+function updateHazard(h, dt) {
+  const dx = player.x - h.x, dy = player.y - h.y;
+  const d = Math.hypot(dx, dy) || 1;
+  h.x += (dx / d) * h.speed * dt;
+  h.y += (dy / d) * h.speed * dt;
+}
+
+function updateCollectPhase(dt, now) {
+  collectTimeLeftMs -= dt * 1000;
+
+  // 20秒経過時点で2体目の徘徊敵を追加し、後半は少し忙しくする
+  if (collectTimeLeftMs <= COLLECT_DURATION_MS - 20000 && hazards.length < 2) {
+    spawnHazard();
+  }
+
+  const { mx, my } = readMoveVector();
+  if (mx !== 0 || my !== 0) { player.facingX = mx; player.facingY = my; }
   player.x = clamp(player.x + mx * player.speed * dt, player.r, canvas.width - player.r);
   player.y = clamp(player.y + my * player.speed * dt, player.r, canvas.height - player.r);
 
-  // --- 敵の湧き（時間経過で少しずつ増える） ---
-  if (now - lastSpawnZombieAt > 2200 && enemies.length < 14) {
-    spawnZombie();
-    lastSpawnZombieAt = now;
-  }
-  if (now - lastSpawnRollingAt > 4000 && elapsedMs > 3000 && enemies.length < 14) {
-    spawnRolling();
-    lastSpawnRollingAt = now;
-  }
-  if (now - lastSpawnMaterialAt > 7000) {
-    spawnFieldMaterial();
-    lastSpawnMaterialAt = now;
-  }
-
-  // --- エフェクトゾーン（煙幕・花粉）が敵に影響 ---
-  // まず全員のスロウ状態をリセットしてから、ゾーン内にいる敵だけ再度スロウをかける
-  // （ゾーンから出た敵の足が遅いままにならないようにするため）
-  for (const e of enemies) e.slowFactor = 1;
-  for (const z of effectZones) {
-    for (const e of enemies) {
-      if (circlesOverlap(z.x, z.y, z.r, e.x, e.y, e.r)) {
-        e.hp -= z.dps * dt;
-        e.slowFactor = Math.min(e.slowFactor, 1 - z.slowFactor); // slowFactorは「何%遅くするか」
-      }
+  for (const h of hazards) {
+    updateHazard(h, dt);
+    if (circlesOverlap(player.x, player.y, player.r, h.x, h.y, h.r) && now >= player.invincibleUntil) {
+      player.hp = Math.max(0, player.hp - h.contactDamage);
+      player.invincibleUntil = now + player.invincibleMs;
+      spawnFloatingText(player.x, player.y - player.r - 6, `-${h.contactDamage}`, "#ff6b6b");
     }
   }
 
-  // --- 敵の更新 ---
-  for (const e of enemies) {
-    if (e.type === "zombie") updateZombie(e, dt);
-    else if (e.type === "rolling") updateRolling(e, dt);
-
-    // 継続ダメージ（インク大当たり効果）
-    if (e.dotUntil && now < e.dotUntil) {
-      e.hp -= e.dotDps * dt;
+  for (let i = materialsOnField.length - 1; i >= 0; i--) {
+    const m = materialsOnField[i];
+    if (circlesOverlap(player.x, player.y, player.r, m.x, m.y, m.r)) {
+      collectedMaterials.push({ materialId: m.materialId, rank: m.rank, multiplier: m.multiplier });
+      showNotice(`${MATERIALS[m.materialId].name}を回収した`);
+      materialsOnField.splice(i, 1);
     }
   }
 
-  // --- 敵とプレイヤーの接触判定 ---
-  for (const e of enemies) {
-    if (circlesOverlap(player.x, player.y, player.r, e.x, e.y, e.r)) {
-      applyContactDamage(e, now);
-    }
-  }
+  updateCollectHud();
 
-  // --- 死亡した敵を除去し、素材をドロップ ---
-  for (let i = enemies.length - 1; i >= 0; i--) {
-    if (enemies[i].hp <= 0) {
-      const e = enemies[i];
-      const id = MATERIAL_IDS[Math.floor(Math.random() * MATERIAL_IDS.length)];
-      createMaterialDrop(e.x, e.y, id);
-      enemies.splice(i, 1);
-    }
-  }
-
-  // --- プレイヤーと素材ドロップの接触＝即武器化 ---
-  for (let i = materialDrops.length - 1; i >= 0; i--) {
-    const drop = materialDrops[i];
-    if (circlesOverlap(player.x, player.y, player.r, drop.x, drop.y, drop.r)) {
-      const weapon = materialDropToWeapon(drop);
-      equipWeapon(weapon);
-      materialDrops.splice(i, 1);
-    }
-  }
-
-  // --- 期限切れのエフェクトゾーンを除去 ---
-  for (let i = effectZones.length - 1; i >= 0; i--) {
-    if (now > effectZones[i].expireAt) effectZones.splice(i, 1);
-  }
-
-  // --- 攻撃 ---
-  tryAttack(now);
-
-  // --- HP0でゲームオーバー ---
-  if (player.hp <= 0) {
-    gameOver = true;
-    document.getElementById("gameover").classList.add("show");
-  }
-
-  updateHud(now);
-}
-
-function applyContactDamage(e, now) {
-  if (now < player.invincibleUntil) return;
-  let dmg = e.type === "zombie" ? e.contactDamage
-    : (enemyIsCharging(e) ? e.contactDamageCharge : e.contactDamageNormal);
-
-  // 分度器（盾）装備中は接触ダメージを軽減
-  if (player.weapon && player.weapon.materialId === "protractor") {
-    dmg = Math.round(dmg * 0.75);
-    if (player.weapon.jackpotEffect === "reflect_area_expand") {
-      damageEnemy(e, 8, 14); // 反射ダメージ
-    }
-  }
-
-  player.hp = Math.max(0, player.hp - dmg);
-  player.invincibleUntil = now + player.invincibleMs;
-  spawnFloatingText(player.x, player.y - player.r - 6, `-${dmg}`, "#ff6b6b");
-
-  if (enemyIsCharging(e)) {
-    // 突進の勢いでノックバックも大きめ
-    const d = dist(e.x, e.y, player.x, player.y) || 1;
-    player.x += ((player.x - e.x) / d) * 20;
-    player.y += ((player.y - e.y) / d) * 20;
+  if (collectTimeLeftMs <= 0 || player.hp <= 0) {
+    enterPrepPhase();
   }
 }
 
-function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function drawCollectPhase(now) {
+  drawFloorGrid();
+  for (const m of materialsOnField) drawFieldMaterial(m, now);
+  for (const h of hazards) drawHazard(h);
+  drawPlayer(now);
+  drawFloatingTexts(now);
+}
+
+function drawHazard(h) {
+  ctx.beginPath();
+  ctx.fillStyle = "#7fae5b";
+  ctx.arc(h.x, h.y, h.r, 0, Math.PI * 2);
+  ctx.fill();
+}
 
 // ----------------------------------------------------------------------
-// HUD更新
+// 準備フェーズへの切り替え
 // ----------------------------------------------------------------------
+const loadout = []; // 装備スロット。最大3、中身は collectedMaterials の要素そのもの
+
+function enterPrepPhase() {
+  phase = PHASE.PREP;
+  loadout.length = 0;
+  document.getElementById("prep-screen").classList.add("show");
+  renderPrepScreen();
+}
+
+// ======================================================================
+// ② 準備フェーズ（HTML UI）
+// ======================================================================
+const materialPoolEl = document.getElementById("material-pool");
+const loadoutSlotsEl = document.getElementById("loadout-slots");
+const prepEmptyNoteEl = document.getElementById("prep-empty-note");
+const goBattleButton = document.getElementById("go-battle-button");
+
+function renderPrepScreen() {
+  materialPoolEl.innerHTML = "";
+  loadoutSlotsEl.innerHTML = "";
+
+  prepEmptyNoteEl.style.display = collectedMaterials.length === 0 ? "block" : "none";
+
+  // 装備スロット（最大3）
+  for (let i = 0; i < 3; i++) {
+    const slotDiv = document.createElement("div");
+    const item = loadout[i];
+    slotDiv.className = "loadout-slot" + (item ? " filled" : "");
+    if (item) {
+      const mat = MATERIALS[item.materialId];
+      slotDiv.innerHTML = `<div class="card-dot" style="background:${mat.color}"></div><div class="slot-name">${mat.name}</div><div class="card-rank rank-${item.rank}">${RANK_LABEL[item.rank]}</div>`;
+      slotDiv.addEventListener("click", () => {
+        loadout.splice(i, 1);
+        renderPrepScreen();
+      });
+    } else {
+      slotDiv.textContent = "空き枠";
+      slotDiv.style.opacity = "0.5";
+    }
+    loadoutSlotsEl.appendChild(slotDiv);
+  }
+
+  // 回収した素材一覧（すでに装備枠に入っているものは選択済み表示にする）
+  const usedIndices = new Set(loadout.map((it) => it.__poolIndex));
+  collectedMaterials.forEach((item, index) => {
+    const mat = MATERIALS[item.materialId];
+    const card = document.createElement("div");
+    const isUsed = usedIndices.has(index);
+    card.className = "material-card" + (isUsed ? " selected" : "");
+    card.innerHTML = `
+      <div class="card-dot" style="background:${mat.color}"></div>
+      <div class="card-name">${mat.name}</div>
+      <div class="card-rank rank-${item.rank}">${RANK_LABEL[item.rank]}</div>
+    `;
+    if (!isUsed) {
+      card.addEventListener("click", () => {
+        if (loadout.length >= 3) return; // 3枠埋まっていたら何もしない
+        const tagged = Object.assign({}, item, { __poolIndex: index });
+        loadout.push(tagged);
+        renderPrepScreen();
+      });
+    }
+    materialPoolEl.appendChild(card);
+  });
+
+  goBattleButton.disabled = false; // 0〜3個どの状態でも出撃は可能（0個なら素手扱い）
+}
+
+goBattleButton.addEventListener("click", () => {
+  enterCombatStub();
+});
+
+// ======================================================================
+// ③ 戦闘フェーズ（今回はスタブ画面のみ。次のステップで本実装）
+// ======================================================================
+const combatStubLoadoutEl = document.getElementById("combat-stub-loadout");
+
+function enterCombatStub() {
+  phase = PHASE.COMBAT_STUB;
+  document.getElementById("prep-screen").classList.remove("show");
+  document.getElementById("combat-stub").classList.add("show");
+
+  if (loadout.length === 0) {
+    combatStubLoadoutEl.textContent = "選んだ装備: なし（素手で出撃）";
+  } else {
+    const names = loadout.map((it) => `${MATERIALS[it.materialId].name}[${RANK_LABEL[it.rank]}]`);
+    combatStubLoadoutEl.textContent = "選んだ装備: " + names.join(" / ");
+  }
+}
+
+document.getElementById("restart-run-button").addEventListener("click", () => {
+  document.getElementById("combat-stub").classList.remove("show");
+  startCollectPhase();
+});
+
+// ======================================================================
+// HUD更新・描画共通処理
+// ======================================================================
 const hpBarInner = document.getElementById("hp-bar-inner");
 const hpText = document.getElementById("hp-text");
-const weaponInfoEl = document.getElementById("weapon-info");
-const revertPanel = document.getElementById("revert-panel");
-const revertLabel = document.getElementById("revert-label");
-const revertGaugeInner = document.getElementById("revert-gauge-inner");
+const collectStatusEl = document.getElementById("collect-status");
+const phaseTimerEl = document.getElementById("phase-timer");
 
-function updateHud(now) {
+function updateCollectHud() {
   const hpPct = Math.max(0, (player.hp / player.maxHp) * 100);
   hpBarInner.style.width = hpPct + "%";
   hpText.textContent = `HP ${Math.ceil(player.hp)} / ${player.maxHp}`;
+  collectStatusEl.textContent = `回収: ${collectedMaterials.length}個`;
 
-  const weapon = player.weapon || UNARMED_WEAPON;
-  const rankLabel = weapon.materialId ? RANK_LABEL[weapon.rank] : "";
-  weaponInfoEl.innerHTML = weapon.materialId
-    ? `${weapon.name} <span class="rank-${weapon.rank}">[${rankLabel}]</span>`
-    : "素手";
-
-  // リバートUI：直前の武器が期限内にあるときだけ表示
-  if (player.previousWeaponExpireAt && now < player.previousWeaponExpireAt) {
-    revertPanel.classList.add("active");
-    const prevName = player.previousWeapon ? player.previousWeapon.name : "素手";
-    revertLabel.textContent = `直前の武器: ${prevName}`;
-    const remain = (player.previousWeaponExpireAt - now) / player.REVERT_WINDOW_MS;
-    revertGaugeInner.style.width = Math.max(0, remain * 100) + "%";
-  } else {
-    revertPanel.classList.remove("active");
-  }
+  const secs = Math.max(0, Math.ceil(collectTimeLeftMs / 1000));
+  phaseTimerEl.textContent = `残り ${secs} 秒`;
+  phaseTimerEl.classList.toggle("warning", secs <= 10);
 }
-const RANK_LABEL = { low: "low", mid: "mid", high: "HIGH", jackpot: "JACKPOT!!" };
 
-// ----------------------------------------------------------------------
-// 描画
-// ----------------------------------------------------------------------
-function draw(now) {
+function drawFloorGrid() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // うっすら床のグリッド（教室の床っぽさを出す仮の背景）
   ctx.strokeStyle = "rgba(255,255,255,0.05)";
   ctx.lineWidth = 1;
   const grid = 40;
@@ -980,41 +820,40 @@ function draw(now) {
   for (let y = 0; y < canvas.height; y += grid) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
   }
+}
 
-  // エフェクトゾーン
-  for (const z of effectZones) {
-    ctx.beginPath();
-    ctx.fillStyle = "rgba(160, 220, 120, 0.25)";
-    ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
-    ctx.fill();
+function drawPlayer(now) {
+  const invincible = now < player.invincibleUntil;
+  ctx.beginPath();
+  ctx.fillStyle = invincible ? "#fff5b0" : player.color;
+  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.fillStyle = "#333";
+  const fx = player.x + player.facingX * (player.r + 6);
+  const fy = player.y + player.facingY * (player.r + 6);
+  ctx.arc(fx, fy, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFieldMaterial(m, now) {
+  const mat = MATERIALS[m.materialId];
+  const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+  if (m.rank === "mid") {
+    drawAuraRing(m.x, m.y, m.r + 6, `rgba(255,255,255,${0.25 + 0.15 * pulse})`, 2);
+  } else if (m.rank === "high") {
+    drawAuraRing(m.x, m.y, m.r + 8, `rgba(108,240,255,${0.45 + 0.25 * pulse})`, 3);
+  } else if (m.rank === "jackpot") {
+    drawAuraRing(m.x, m.y, m.r + 12, `rgba(255,210,63,${0.55 + 0.35 * pulse})`, 4);
+    drawAuraRing(m.x, m.y, m.r + 18, `rgba(255,120,240,${0.25 + 0.2 * pulse})`, 2);
   }
+  ctx.beginPath();
+  ctx.fillStyle = mat.color;
+  ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+  ctx.fill();
+}
 
-  // 素材ドロップ（質ランクで見た目を変える）
-  for (const drop of materialDrops) {
-    drawMaterialDrop(drop, now);
-  }
-
-  // 敵
-  for (const e of enemies) drawEnemy(e, now);
-
-  // プレイヤー
-  drawPlayer(now);
-
-  // 攻撃エフェクト
-  for (let i = attackFx.length - 1; i >= 0; i--) {
-    const fx = attackFx[i];
-    const t = (now - fx.bornAt) / fx.lifeMs;
-    if (t >= 1) { attackFx.splice(i, 1); continue; }
-    ctx.beginPath();
-    ctx.strokeStyle = fx.color;
-    ctx.globalAlpha = 1 - t;
-    ctx.lineWidth = 3;
-    ctx.arc(fx.x, fx.y, fx.r * (0.6 + t * 0.4), 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-
-  // フローティングテキスト
+function drawFloatingTexts(now) {
   for (let i = floatingTexts.length - 1; i >= 0; i--) {
     const f = floatingTexts[i];
     const t = (now - f.bornAt) / f.lifeMs;
@@ -1028,90 +867,24 @@ function draw(now) {
   }
 }
 
-function drawPlayer(now) {
-  const invincible = now < player.invincibleUntil;
-  ctx.beginPath();
-  ctx.fillStyle = invincible ? "#fff5b0" : player.color;
-  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 向きの目印（前方に小さい三角）
-  ctx.beginPath();
-  ctx.fillStyle = "#333";
-  const fx = player.x + player.facingX * (player.r + 6);
-  const fy = player.y + player.facingY * (player.r + 6);
-  ctx.arc(fx, fy, 3, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawEnemy(e, now) {
-  let color = e.color;
-  if (e.type === "rolling" && e.state === "telegraph") {
-    // 突進予告：点滅させて警告する
-    color = Math.floor(now / 100) % 2 === 0 ? "#ff5252" : e.color;
-  }
-  ctx.beginPath();
-  ctx.fillStyle = color;
-  ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
-  ctx.fill();
-
-  if (enemyIsCharging(e)) {
-    ctx.beginPath();
-    ctx.strokeStyle = "#ff5252";
-    ctx.lineWidth = 2;
-    ctx.arc(e.x, e.y, e.r + 4, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  // 敵のHPバー（簡易）
-  const barW = 26;
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.fillRect(e.x - barW / 2, e.y - e.r - 10, barW, 4);
-  ctx.fillStyle = "#ff8080";
-  ctx.fillRect(e.x - barW / 2, e.y - e.r - 10, barW * Math.max(0, e.hp / e.maxHp), 4);
-}
-
-function drawMaterialDrop(drop, now) {
-  const mat = MATERIALS[drop.materialId];
-  const pulse = 0.5 + 0.5 * Math.sin(now / 200);
-
-  // 質ランクに応じたオーラ
-  if (drop.rank === "mid") {
-    drawAuraRing(drop.x, drop.y, drop.r + 6, `rgba(255,255,255,${0.25 + 0.15 * pulse})`, 2);
-  } else if (drop.rank === "high") {
-    drawAuraRing(drop.x, drop.y, drop.r + 8, `rgba(108,240,255,${0.45 + 0.25 * pulse})`, 3);
-  } else if (drop.rank === "jackpot") {
-    drawAuraRing(drop.x, drop.y, drop.r + 12, `rgba(255,210,63,${0.55 + 0.35 * pulse})`, 4);
-    drawAuraRing(drop.x, drop.y, drop.r + 18, `rgba(255,120,240,${0.25 + 0.2 * pulse})`, 2);
-  }
-
-  ctx.beginPath();
-  ctx.fillStyle = mat.color;
-  ctx.arc(drop.x, drop.y, drop.r, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawAuraRing(x, y, r, strokeStyle, lineWidth) {
-  ctx.beginPath();
-  ctx.strokeStyle = strokeStyle;
-  ctx.lineWidth = lineWidth;
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-// ----------------------------------------------------------------------
+// ======================================================================
 // メインループ
-// ----------------------------------------------------------------------
+// ======================================================================
 let lastTime = performance.now();
 function loop(now) {
-  const dt = Math.min(0.05, (now - lastTime) / 1000); // 大きすぎるdtを防ぐ
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-  update(dt, now);
-  draw(now);
+
+  if (phase === PHASE.COLLECT) {
+    updateCollectPhase(dt, now);
+    drawCollectPhase(now);
+  }
+  // PREP / COMBAT_STUB は canvas を止めて背景として残すだけ（HTMLオーバーレイが前面に出る）
+
   requestAnimationFrame(loop);
 }
 
-startGame();
+startCollectPhase();
 requestAnimationFrame(loop);
 </script>
 </body>

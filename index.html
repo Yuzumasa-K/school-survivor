@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>放課後サバイバー（仮）- Phase1</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #1b1d22;
+    overflow: hidden;
+    font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+    user-select: none;
+  }
+  canvas {
+    display: block;
+    background: #2b2f36;
+  }
+
+  /* ---------- HUD（HP・武器情報） ---------- */
+  #hud {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    pointer-events: none;
+  }
+  #hp-bar-outer {
+    width: 220px;
+    height: 18px;
+    border: 2px solid #fff;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.4);
+    overflow: hidden;
+  }
+  #hp-bar-inner {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(#5ee65e, #2fa32f);
+    transition: width 0.15s linear;
+  }
+  #hp-text {
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  #weapon-info {
+    margin-top: 10px;
+    font-size: 14px;
+    background: rgba(0,0,0,0.35);
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  #weapon-info .rank-low { color: #ccc; }
+  #weapon-info .rank-mid { color: #fff; font-weight: bold; }
+  #weapon-info .rank-high { color: #6cf0ff; font-weight: bold; }
+  #weapon-info .rank-jackpot { color: #ffd23f; font-weight: bold; text-shadow: 0 0 6px #ffb300; }
+
+  /* ---------- 拾得通知（画面上部中央） ---------- */
+  #pickup-notice {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translate(-50%, -12px);
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 18px;
+    font-weight: bold;
+    opacity: 0;
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #pickup-notice.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  /* ---------- リバートUI（画面隅） ---------- */
+  #revert-panel {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 150px;
+    background: rgba(0,0,0,0.5);
+    border: 2px solid #fff;
+    border-radius: 8px;
+    padding: 8px;
+    color: #fff;
+    display: none;
+  }
+  #revert-panel.active { display: block; }
+  #revert-label {
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  #revert-gauge-outer {
+    width: 100%;
+    height: 8px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  #revert-gauge-inner {
+    height: 100%;
+    width: 100%;
+    background: #ffd23f;
+  }
+  #revert-key {
+    font-size: 11px;
+    opacity: 0.8;
+    margin-top: 4px;
+  }
+
+  #gameover {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    font-size: 28px;
+    gap: 12px;
+  }
+  #gameover.show { display: flex; }
+  #gameover button {
+    font-size: 16px;
+    padding: 8px 20px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
+  <div id="hp-text">HP 100 / 100</div>
+  <div id="weapon-info">素手</div>
+</div>
+
+<div id="pickup-notice"></div>
+
+<div id="revert-panel">
+  <div id="revert-label">直前の武器: ―</div>
+  <div id="revert-gauge-outer"><div id="revert-gauge-inner"></div></div>
+  <div id="revert-key">[Q] キーで戻す</div>
+</div>
+
+<div id="gameover">
+  <div>やられた…</div>
+  <button id="retry-button">もう一度挑む</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+"use strict";
+
+// ======================================================================
+// 放課後サバイバー Phase1 プロトタイプ
+// 単一HTMLファイル / Canvas + 素のJS（ビルドツールなし）
+//
+// 全体の流れ:
+//  1. プレイヤーが移動する
+//  2. 敵（追跡型・突進型）がプレイヤーを狙って動く
+//  3. プレイヤーは装備中の武器で自動的に敵を攻撃する
+//  4. 敵を倒す／落ちている素材に触れると、即座にその素材が武器化する
+//     （武器化と同時に「質ランク」を1回だけ抽選）
+//  5. 拾得演出＋数秒間だけ直前の武器に戻せる「リバートUI」を出す
+// ======================================================================
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+// ----------------------------------------------------------------------
+// 当たり判定ユーティリティ：全部「中心座標＋半径」の円判定だけを使う
+// ----------------------------------------------------------------------
+function circlesOverlap(ax, ay, ar, bx, by, br) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  const distSq = dx * dx + dy * dy;
+  const rr = ar + br;
+  return distSq <= rr * rr;
+}
+function dist(ax, ay, bx, by) {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+// ----------------------------------------------------------------------
+// 素材データ（フェーズ1で使う4種のみ）
+// quality_table は「発生した瞬間」に1回だけ抽選するために使う
+// ----------------------------------------------------------------------
+const MATERIALS = {
+  ballpoint_pen: {
+    id: "ballpoint_pen",
+    name: "ボールペン",
+    weaponType: "sword",
+    qualityType: "stable",
+    qualityTable: [
+      { rank: "low", chance: 0.15, multiplier: 0.7 },
+      { rank: "mid", chance: 0.70, multiplier: 1.0 },
+      { rank: "high", chance: 0.15, multiplier: 1.4 },
+    ],
+    basePower: 10,
+    jackpotEffect: "small_area_ink_splash",
+    color: "#4d8dff",
+  },
+  protractor: {
+    id: "protractor",
+    name: "分度器",
+    weaponType: "shield",
+    qualityType: "stable",
+    qualityTable: [
+      { rank: "low", chance: 0.15, multiplier: 0.7 },
+      { rank: "mid", chance: 0.70, multiplier: 1.0 },
+      { rank: "high", chance: 0.15, multiplier: 1.4 },
+    ],
+    basePower: 8,
+    jackpotEffect: "reflect_area_expand",
+    color: "#ffb84d",
+  },
+  chalk: {
+    id: "chalk",
+    name: "チョーク",
+    weaponType: "thrown",
+    qualityType: "romance",
+    qualityTable: [
+      { rank: "low", chance: 0.90, multiplier: 0.5 },
+      { rank: "mid", chance: 0.09, multiplier: 1.5 },
+      { rank: "jackpot", chance: 0.01, multiplier: 3.0 },
+    ],
+    basePower: 4,
+    jackpotEffect: "smoke_field_debuff",
+    color: "#f5f5f5",
+  },
+  weed_from_windowsill: {
+    id: "weed_from_windowsill",
+    name: "窓際の雑草",
+    weaponType: "thrown",
+    qualityType: "romance",
+    qualityTable: [
+      { rank: "low", chance: 0.90, multiplier: 0.4 },
+      { rank: "mid", chance: 0.09, multiplier: 1.4 },
+      { rank: "jackpot", chance: 0.01, multiplier: 3.5 },
+    ],
+    basePower: 3,
+    jackpotEffect: "pollen_debuff_field",
+    color: "#5ec95e",
+  },
+};
+const MATERIAL_IDS = Object.keys(MATERIALS);
+
+// 質ランクを1回だけ抽選する
+function rollQuality(material) {
+  const r = Math.random();
+  let acc = 0;
+  for (const entry of material.qualityTable) {
+    acc += entry.chance;
+    if (r < acc) return entry;
+  }
+  // 端数誤差対策で最後の要素を返す
+  return material.qualityTable[material.qualityTable.length - 1];
+}
+
+// ----------------------------------------------------------------------
+// プレイヤー
+// ----------------------------------------------------------------------
+const player = {
+  x: 0, y: 0,
+  r: 16,
+  speed: 220, // px/秒
+  color: "#ffcc00",
+  hp: 100,
+  maxHp: 100,
+  invincibleUntil: 0,
+  invincibleMs: 500,
+  facingX: 0, facingY: -1, // 直前に動いた向き（前方判定に使う）
+
+  // 現在装備している武器。null=素手
+  weapon: null,
+  lastAttackAt: 0,
+
+  // リバート用に1つだけ保持する「直前の武器」
+  previousWeapon: null,
+  previousWeaponExpireAt: 0,
+  REVERT_WINDOW_MS: 4000,
+};
+
+const UNARMED_WEAPON = {
+  materialId: null,
+  name: "素手",
+  weaponType: "sword",
+  rank: "mid",
+  multiplier: 1.0,
+  basePower: 3,
+  cooldownMs: 700,
+  range: 44,
+  jackpotEffect: null,
+  color: "#dddddd",
+};
+
+function resetPlayer() {
+  player.x = canvas.width / 2;
+  player.y = canvas.height / 2;
+  player.hp = player.maxHp;
+  player.invincibleUntil = 0;
+  player.weapon = null;
+  player.previousWeapon = null;
+  player.previousWeaponExpireAt = 0;
+}
+
+// ----------------------------------------------------------------------
+// 武器化ロジック
+// ----------------------------------------------------------------------
+// 素材オブジェクト（フィールドに落ちている／敵が落とした瞬間のもの）を
+// 実際に装備できる「武器データ」に変換する。質ランクはここでは引かない
+// （素材が生成された瞬間に既に抽選済みのものをそのまま使う）。
+function materialDropToWeapon(drop) {
+  const mat = MATERIALS[drop.materialId];
+  const cooldownByType = { sword: 450, shield: 900, thrown: 650 };
+  const rangeByType = { sword: 60, shield: 78, thrown: 230 };
+  return {
+    materialId: mat.id,
+    name: mat.name,
+    weaponType: mat.weaponType,
+    rank: drop.rank,
+    multiplier: drop.multiplier,
+    basePower: mat.basePower,
+    cooldownMs: cooldownByType[mat.weaponType],
+    range: rangeByType[mat.weaponType],
+    jackpotEffect: drop.rank === "jackpot" ? mat.jackpotEffect : null,
+    color: mat.color,
+  };
+}
+
+function equipWeapon(newWeapon) {
+  // 今持っている武器を「直前の武器」としてリバート枠に上書きする
+  // （リバート待機中に新しい素材を拾った場合も、常にひとつ前に上書きされる）
+  player.previousWeapon = player.weapon; // null=素手だった場合も保持
+  player.previousWeaponExpireAt = performance.now() + player.REVERT_WINDOW_MS;
+
+  player.weapon = newWeapon;
+  showPickupNotice(newWeapon);
+}
+
+function revertWeapon() {
+  if (!player.previousWeapon && player.previousWeapon !== null) return;
+  if (performance.now() > player.previousWeaponExpireAt) return; // 期限切れ
+  if (player.previousWeaponExpireAt === 0) return; // そもそも枠が無い
+
+  player.weapon = player.previousWeapon;
+  player.previousWeapon = null;
+  player.previousWeaponExpireAt = 0;
+  flashRevertNotice();
+}
+
+// ----------------------------------------------------------------------
+// 拾得演出（画面上部中央の通知）
+// ----------------------------------------------------------------------
+const noticeEl = document.getElementById("pickup-notice");
+let noticeTimer = null;
+function showPickupNotice(weapon) {
+  const label = weapon ? `${weapon.name}を装備！` : "素手に戻った！";
+  noticeEl.textContent = label;
+  noticeEl.classList.remove("show");
+  // 一度リフローさせてからON→CSSトランジションで0.15〜0.3秒程度のふわっと表示にする
+  void noticeEl.offsetWidth;
+  noticeEl.classList.add("show");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => noticeEl.classList.remove("show"), 900);
+}
+function flashRevertNotice() {
+  noticeEl.textContent = `${player.weapon ? player.weapon.name : "素手"}に戻した！`;
+  noticeEl.classList.remove("show");
+  void noticeEl.offsetWidth;
+  noticeEl.classList.add("show");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => noticeEl.classList.remove("show"), 900);
+}
+
+// ----------------------------------------------------------------------
+// 敵
+// ----------------------------------------------------------------------
+const enemies = [];
+
+function spawnZombie() {
+  const { x, y } = randomEdgePosition();
+  enemies.push({
+    type: "zombie",
+    x, y, r: 15,
+    speed: 75,
+    hp: 20, maxHp: 20,
+    contactDamage: 8,
+    color: "#7fae5b",
+  });
+}
+
+function spawnRolling() {
+  const { x, y } = randomEdgePosition();
+  enemies.push({
+    type: "rolling",
+    x, y, r: 14,
+    speedApproach: 55,
+    speedCharge: 320,
+    hp: 16, maxHp: 16,
+    contactDamageNormal: 5,
+    contactDamageCharge: 18,
+    state: "approach", // approach -> telegraph -> charge -> approach
+    stateTimer: 0,
+    chargeDirX: 0, chargeDirY: 0,
+    triggerDist: 170,
+    telegraphMs: 450,
+    chargeMs: 550,
+    color: "#c97b3d",
+  });
+}
+
+function randomEdgePosition() {
+  const side = Math.floor(Math.random() * 4);
+  const margin = 40;
+  if (side === 0) return { x: -margin, y: Math.random() * canvas.height };
+  if (side === 1) return { x: canvas.width + margin, y: Math.random() * canvas.height };
+  if (side === 2) return { x: Math.random() * canvas.width, y: -margin };
+  return { x: Math.random() * canvas.width, y: canvas.height + margin };
+}
+
+function updateZombie(e, dt) {
+  const dx = player.x - e.x, dy = player.y - e.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const slow = e.slowFactor || 1;
+  e.x += (dx / d) * e.speed * slow * dt;
+  e.y += (dy / d) * e.speed * slow * dt;
+}
+
+function updateRolling(e, dt) {
+  const dx = player.x - e.x, dy = player.y - e.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const slow = e.slowFactor || 1;
+
+  if (e.state === "approach") {
+    e.x += (dx / d) * e.speedApproach * slow * dt;
+    e.y += (dy / d) * e.speedApproach * slow * dt;
+    if (d <= e.triggerDist) {
+      e.state = "telegraph";
+      e.stateTimer = 0;
+      // 突進方向はこの瞬間のプレイヤー方向で固定（助走→加速）
+      e.chargeDirX = dx / d;
+      e.chargeDirY = dy / d;
+    }
+  } else if (e.state === "telegraph") {
+    e.stateTimer += dt * 1000;
+    if (e.stateTimer >= e.telegraphMs) {
+      e.state = "charge";
+      e.stateTimer = 0;
+    }
+  } else if (e.state === "charge") {
+    e.x += e.chargeDirX * e.speedCharge * dt;
+    e.y += e.chargeDirY * e.speedCharge * dt;
+    e.stateTimer += dt * 1000;
+    if (e.stateTimer >= e.chargeMs) {
+      e.state = "approach";
+      e.stateTimer = 0;
+    }
+  }
+}
+
+function enemyIsCharging(e) {
+  return e.type === "rolling" && e.state === "charge";
+}
+
+// ----------------------------------------------------------------------
+// フィールド上の素材ドロップ（「発生した瞬間」に質ランクを抽選済み）
+// ----------------------------------------------------------------------
+const materialDrops = [];
+
+function createMaterialDrop(x, y, materialId) {
+  const mat = MATERIALS[materialId];
+  const rolled = rollQuality(mat); // ← ここが「発生の瞬間」の1回きりの抽選
+  materialDrops.push({
+    x, y, r: 10,
+    materialId,
+    rank: rolled.rank,
+    multiplier: rolled.multiplier,
+    spawnAt: performance.now(),
+  });
+}
+
+function spawnFieldMaterial() {
+  if (materialDrops.length >= 4) return; // 場に出す数の上限
+  const id = MATERIAL_IDS[Math.floor(Math.random() * MATERIAL_IDS.length)];
+  const margin = 60;
+  const x = margin + Math.random() * (canvas.width - margin * 2);
+  const y = margin + Math.random() * (canvas.height - margin * 2);
+  createMaterialDrop(x, y, id);
+}
+
+// ----------------------------------------------------------------------
+// 演出用エフェクトゾーン（大当たり効果：煙幕・花粉フィールドなど）
+// 敵にだけダメージ／スロウを与える、動かない円。これも中心＋半径の円判定。
+// ----------------------------------------------------------------------
+const effectZones = [];
+function spawnEffectZone(x, y, r, durationMs, dps, slowFactor) {
+  effectZones.push({ x, y, r, expireAt: performance.now() + durationMs, dps, slowFactor });
+}
+
+// 攻撃エフェクト（見た目だけの一瞬の円。減衰して消える）
+const attackFx = [];
+function spawnAttackFx(x, y, r, color) {
+  attackFx.push({ x, y, r, color, bornAt: performance.now(), lifeMs: 180 });
+}
+
+// ふわっと消える簡易ダメージ数値
+const floatingTexts = [];
+function spawnFloatingText(x, y, text, color) {
+  floatingTexts.push({ x, y, text, color, bornAt: performance.now(), lifeMs: 600 });
+}
+
+// ----------------------------------------------------------------------
+// 武器攻撃ロジック
+// ----------------------------------------------------------------------
+function weaponDamage(weapon) {
+  return Math.max(1, Math.round(weapon.basePower * weapon.multiplier));
+}
+
+function findNearestEnemy(x, y, maxRange) {
+  let best = null, bestDist = Infinity;
+  for (const e of enemies) {
+    const d = dist(x, y, e.x, e.y);
+    if (d <= maxRange && d < bestDist) { best = e; bestDist = d; }
+  }
+  return best;
+}
+
+function damageEnemy(e, amount, knockback) {
+  e.hp -= amount;
+  spawnFloatingText(e.x, e.y - e.r - 4, `-${amount}`, "#fff");
+  if (knockback) {
+    const d = dist(player.x, player.y, e.x, e.y) || 1;
+    const kx = (e.x - player.x) / d, ky = (e.y - player.y) / d;
+    e.x += kx * knockback;
+    e.y += ky * knockback;
+  }
+}
+
+function tryAttack(now) {
+  const weapon = player.weapon || UNARMED_WEAPON;
+  if (now - player.lastAttackAt < weapon.cooldownMs) return;
+
+  if (weapon.weaponType === "sword") {
+    // プレイヤーの少し前方を中心にした円範囲攻撃
+    let radius = weapon.range;
+    if (weapon.jackpotEffect === "small_area_ink_splash") radius *= 1.5;
+    const cx = player.x + player.facingX * 20;
+    const cy = player.y + player.facingY * 20;
+    const dmg = weaponDamage(weapon);
+    let hitAny = false;
+    for (const e of enemies) {
+      if (circlesOverlap(cx, cy, radius, e.x, e.y, e.r)) {
+        damageEnemy(e, dmg, 8);
+        if (weapon.jackpotEffect === "small_area_ink_splash") {
+          e.dotUntil = now + 3000;
+          e.dotDps = 2;
+        }
+        hitAny = true;
+      }
+    }
+    spawnAttackFx(cx, cy, radius, weapon.color);
+    if (hitAny) player.lastAttackAt = now; else player.lastAttackAt = now; // 空振りでもクールダウンは進む(素振り)
+  } else if (weapon.weaponType === "shield") {
+    let radius = weapon.range;
+    if (weapon.jackpotEffect === "reflect_area_expand") radius *= 1.5;
+    const dmg = weaponDamage(weapon);
+    for (const e of enemies) {
+      if (circlesOverlap(player.x, player.y, radius, e.x, e.y, e.r)) {
+        damageEnemy(e, dmg, 26); // シールドは吹き飛ばし強め
+      }
+    }
+    spawnAttackFx(player.x, player.y, radius, weapon.color);
+    player.lastAttackAt = now;
+  } else if (weapon.weaponType === "thrown") {
+    const target = findNearestEnemy(player.x, player.y, weapon.range);
+    if (target) {
+      const dmg = weaponDamage(weapon);
+      const hitR = 30;
+      damageEnemy(target, dmg, 6);
+      spawnAttackFx(target.x, target.y, hitR, weapon.color);
+      if (weapon.jackpotEffect === "smoke_field_debuff") {
+        spawnEffectZone(target.x, target.y, 50, 3000, 3, 0.4);
+      } else if (weapon.jackpotEffect === "pollen_debuff_field") {
+        spawnEffectZone(target.x, target.y, 55, 4000, 1, 0.5);
+      }
+      player.lastAttackAt = now;
+    }
+    // 範囲内に敵がいない間はクールダウンを消費しない（待機）
+  }
+}
+
+// ----------------------------------------------------------------------
+// 入力
+// ----------------------------------------------------------------------
+const keys = {};
+window.addEventListener("keydown", (ev) => {
+  keys[ev.key.toLowerCase()] = true;
+  if (ev.key.toLowerCase() === "q") revertWeapon();
+});
+window.addEventListener("keyup", (ev) => { keys[ev.key.toLowerCase()] = false; });
+
+function readMoveVector() {
+  let mx = 0, my = 0;
+  if (keys["w"] || keys["arrowup"]) my -= 1;
+  if (keys["s"] || keys["arrowdown"]) my += 1;
+  if (keys["a"] || keys["arrowleft"]) mx -= 1;
+  if (keys["d"] || keys["arrowright"]) mx += 1;
+  if (mx !== 0 || my !== 0) {
+    const len = Math.hypot(mx, my);
+    mx /= len; my /= len;
+  }
+  return { mx, my };
+}
+
+// ----------------------------------------------------------------------
+// ゲーム状態
+// ----------------------------------------------------------------------
+let gameOver = false;
+let lastSpawnZombieAt = 0;
+let lastSpawnRollingAt = 0;
+let lastSpawnMaterialAt = 0;
+let elapsedMs = 0;
+
+function startGame() {
+  resetPlayer();
+  enemies.length = 0;
+  materialDrops.length = 0;
+  effectZones.length = 0;
+  attackFx.length = 0;
+  floatingTexts.length = 0;
+  gameOver = false;
+  elapsedMs = 0;
+  lastSpawnZombieAt = 0;
+  lastSpawnRollingAt = 0;
+  lastSpawnMaterialAt = 0;
+  document.getElementById("gameover").classList.remove("show");
+}
+
+document.getElementById("retry-button").addEventListener("click", startGame);
+
+// ----------------------------------------------------------------------
+// 更新
+// ----------------------------------------------------------------------
+function update(dt, now) {
+  if (gameOver) return;
+  elapsedMs += dt * 1000;
+
+  // --- プレイヤー移動 ---
+  const { mx, my } = readMoveVector();
+  if (mx !== 0 || my !== 0) {
+    player.facingX = mx; player.facingY = my;
+  }
+  player.x = clamp(player.x + mx * player.speed * dt, player.r, canvas.width - player.r);
+  player.y = clamp(player.y + my * player.speed * dt, player.r, canvas.height - player.r);
+
+  // --- 敵の湧き（時間経過で少しずつ増える） ---
+  if (now - lastSpawnZombieAt > 2200 && enemies.length < 14) {
+    spawnZombie();
+    lastSpawnZombieAt = now;
+  }
+  if (now - lastSpawnRollingAt > 4000 && elapsedMs > 3000 && enemies.length < 14) {
+    spawnRolling();
+    lastSpawnRollingAt = now;
+  }
+  if (now - lastSpawnMaterialAt > 7000) {
+    spawnFieldMaterial();
+    lastSpawnMaterialAt = now;
+  }
+
+  // --- エフェクトゾーン（煙幕・花粉）が敵に影響 ---
+  // まず全員のスロウ状態をリセットしてから、ゾーン内にいる敵だけ再度スロウをかける
+  // （ゾーンから出た敵の足が遅いままにならないようにするため）
+  for (const e of enemies) e.slowFactor = 1;
+  for (const z of effectZones) {
+    for (const e of enemies) {
+      if (circlesOverlap(z.x, z.y, z.r, e.x, e.y, e.r)) {
+        e.hp -= z.dps * dt;
+        e.slowFactor = Math.min(e.slowFactor, 1 - z.slowFactor); // slowFactorは「何%遅くするか」
+      }
+    }
+  }
+
+  // --- 敵の更新 ---
+  for (const e of enemies) {
+    if (e.type === "zombie") updateZombie(e, dt);
+    else if (e.type === "rolling") updateRolling(e, dt);
+
+    // 継続ダメージ（インク大当たり効果）
+    if (e.dotUntil && now < e.dotUntil) {
+      e.hp -= e.dotDps * dt;
+    }
+  }
+
+  // --- 敵とプレイヤーの接触判定 ---
+  for (const e of enemies) {
+    if (circlesOverlap(player.x, player.y, player.r, e.x, e.y, e.r)) {
+      applyContactDamage(e, now);
+    }
+  }
+
+  // --- 死亡した敵を除去し、素材をドロップ ---
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    if (enemies[i].hp <= 0) {
+      const e = enemies[i];
+      const id = MATERIAL_IDS[Math.floor(Math.random() * MATERIAL_IDS.length)];
+      createMaterialDrop(e.x, e.y, id);
+      enemies.splice(i, 1);
+    }
+  }
+
+  // --- プレイヤーと素材ドロップの接触＝即武器化 ---
+  for (let i = materialDrops.length - 1; i >= 0; i--) {
+    const drop = materialDrops[i];
+    if (circlesOverlap(player.x, player.y, player.r, drop.x, drop.y, drop.r)) {
+      const weapon = materialDropToWeapon(drop);
+      equipWeapon(weapon);
+      materialDrops.splice(i, 1);
+    }
+  }
+
+  // --- 期限切れのエフェクトゾーンを除去 ---
+  for (let i = effectZones.length - 1; i >= 0; i--) {
+    if (now > effectZones[i].expireAt) effectZones.splice(i, 1);
+  }
+
+  // --- 攻撃 ---
+  tryAttack(now);
+
+  // --- HP0でゲームオーバー ---
+  if (player.hp <= 0) {
+    gameOver = true;
+    document.getElementById("gameover").classList.add("show");
+  }
+
+  updateHud(now);
+}
+
+function applyContactDamage(e, now) {
+  if (now < player.invincibleUntil) return;
+  let dmg = e.type === "zombie" ? e.contactDamage
+    : (enemyIsCharging(e) ? e.contactDamageCharge : e.contactDamageNormal);
+
+  // 分度器（盾）装備中は接触ダメージを軽減
+  if (player.weapon && player.weapon.materialId === "protractor") {
+    dmg = Math.round(dmg * 0.75);
+    if (player.weapon.jackpotEffect === "reflect_area_expand") {
+      damageEnemy(e, 8, 14); // 反射ダメージ
+    }
+  }
+
+  player.hp = Math.max(0, player.hp - dmg);
+  player.invincibleUntil = now + player.invincibleMs;
+  spawnFloatingText(player.x, player.y - player.r - 6, `-${dmg}`, "#ff6b6b");
+
+  if (enemyIsCharging(e)) {
+    // 突進の勢いでノックバックも大きめ
+    const d = dist(e.x, e.y, player.x, player.y) || 1;
+    player.x += ((player.x - e.x) / d) * 20;
+    player.y += ((player.y - e.y) / d) * 20;
+  }
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+// ----------------------------------------------------------------------
+// HUD更新
+// ----------------------------------------------------------------------
+const hpBarInner = document.getElementById("hp-bar-inner");
+const hpText = document.getElementById("hp-text");
+const weaponInfoEl = document.getElementById("weapon-info");
+const revertPanel = document.getElementById("revert-panel");
+const revertLabel = document.getElementById("revert-label");
+const revertGaugeInner = document.getElementById("revert-gauge-inner");
+
+function updateHud(now) {
+  const hpPct = Math.max(0, (player.hp / player.maxHp) * 100);
+  hpBarInner.style.width = hpPct + "%";
+  hpText.textContent = `HP ${Math.ceil(player.hp)} / ${player.maxHp}`;
+
+  const weapon = player.weapon || UNARMED_WEAPON;
+  const rankLabel = weapon.materialId ? RANK_LABEL[weapon.rank] : "";
+  weaponInfoEl.innerHTML = weapon.materialId
+    ? `${weapon.name} <span class="rank-${weapon.rank}">[${rankLabel}]</span>`
+    : "素手";
+
+  // リバートUI：直前の武器が期限内にあるときだけ表示
+  if (player.previousWeaponExpireAt && now < player.previousWeaponExpireAt) {
+    revertPanel.classList.add("active");
+    const prevName = player.previousWeapon ? player.previousWeapon.name : "素手";
+    revertLabel.textContent = `直前の武器: ${prevName}`;
+    const remain = (player.previousWeaponExpireAt - now) / player.REVERT_WINDOW_MS;
+    revertGaugeInner.style.width = Math.max(0, remain * 100) + "%";
+  } else {
+    revertPanel.classList.remove("active");
+  }
+}
+const RANK_LABEL = { low: "low", mid: "mid", high: "HIGH", jackpot: "JACKPOT!!" };
+
+// ----------------------------------------------------------------------
+// 描画
+// ----------------------------------------------------------------------
+function draw(now) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // うっすら床のグリッド（教室の床っぽさを出す仮の背景）
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  const grid = 40;
+  for (let x = 0; x < canvas.width; x += grid) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += grid) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+
+  // エフェクトゾーン
+  for (const z of effectZones) {
+    ctx.beginPath();
+    ctx.fillStyle = "rgba(160, 220, 120, 0.25)";
+    ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 素材ドロップ（質ランクで見た目を変える）
+  for (const drop of materialDrops) {
+    drawMaterialDrop(drop, now);
+  }
+
+  // 敵
+  for (const e of enemies) drawEnemy(e, now);
+
+  // プレイヤー
+  drawPlayer(now);
+
+  // 攻撃エフェクト
+  for (let i = attackFx.length - 1; i >= 0; i--) {
+    const fx = attackFx[i];
+    const t = (now - fx.bornAt) / fx.lifeMs;
+    if (t >= 1) { attackFx.splice(i, 1); continue; }
+    ctx.beginPath();
+    ctx.strokeStyle = fx.color;
+    ctx.globalAlpha = 1 - t;
+    ctx.lineWidth = 3;
+    ctx.arc(fx.x, fx.y, fx.r * (0.6 + t * 0.4), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // フローティングテキスト
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    const f = floatingTexts[i];
+    const t = (now - f.bornAt) / f.lifeMs;
+    if (t >= 1) { floatingTexts.splice(i, 1); continue; }
+    ctx.globalAlpha = 1 - t;
+    ctx.fillStyle = f.color;
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(f.text, f.x, f.y - t * 20);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawPlayer(now) {
+  const invincible = now < player.invincibleUntil;
+  ctx.beginPath();
+  ctx.fillStyle = invincible ? "#fff5b0" : player.color;
+  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 向きの目印（前方に小さい三角）
+  ctx.beginPath();
+  ctx.fillStyle = "#333";
+  const fx = player.x + player.facingX * (player.r + 6);
+  const fy = player.y + player.facingY * (player.r + 6);
+  ctx.arc(fx, fy, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawEnemy(e, now) {
+  let color = e.color;
+  if (e.type === "rolling" && e.state === "telegraph") {
+    // 突進予告：点滅させて警告する
+    color = Math.floor(now / 100) % 2 === 0 ? "#ff5252" : e.color;
+  }
+  ctx.beginPath();
+  ctx.fillStyle = color;
+  ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (enemyIsCharging(e)) {
+    ctx.beginPath();
+    ctx.strokeStyle = "#ff5252";
+    ctx.lineWidth = 2;
+    ctx.arc(e.x, e.y, e.r + 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 敵のHPバー（簡易）
+  const barW = 26;
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(e.x - barW / 2, e.y - e.r - 10, barW, 4);
+  ctx.fillStyle = "#ff8080";
+  ctx.fillRect(e.x - barW / 2, e.y - e.r - 10, barW * Math.max(0, e.hp / e.maxHp), 4);
+}
+
+function drawMaterialDrop(drop, now) {
+  const mat = MATERIALS[drop.materialId];
+  const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+
+  // 質ランクに応じたオーラ
+  if (drop.rank === "mid") {
+    drawAuraRing(drop.x, drop.y, drop.r + 6, `rgba(255,255,255,${0.25 + 0.15 * pulse})`, 2);
+  } else if (drop.rank === "high") {
+    drawAuraRing(drop.x, drop.y, drop.r + 8, `rgba(108,240,255,${0.45 + 0.25 * pulse})`, 3);
+  } else if (drop.rank === "jackpot") {
+    drawAuraRing(drop.x, drop.y, drop.r + 12, `rgba(255,210,63,${0.55 + 0.35 * pulse})`, 4);
+    drawAuraRing(drop.x, drop.y, drop.r + 18, `rgba(255,120,240,${0.25 + 0.2 * pulse})`, 2);
+  }
+
+  ctx.beginPath();
+  ctx.fillStyle = mat.color;
+  ctx.arc(drop.x, drop.y, drop.r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawAuraRing(x, y, r, strokeStyle, lineWidth) {
+  ctx.beginPath();
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth = lineWidth;
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+// ----------------------------------------------------------------------
+// メインループ
+// ----------------------------------------------------------------------
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000); // 大きすぎるdtを防ぐ
+  lastTime = now;
+  update(dt, now);
+  draw(now);
+  requestAnimationFrame(loop);
+}
+
+startGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
